@@ -401,6 +401,12 @@
     dialog[open] { align-items: center; }
   }
 
+  /* Bloquear scroll del body cuando hay modal abierto (fix iOS) */
+  html.modal-open, body.modal-open {
+    overflow: hidden;
+    height: 100%;
+  }
+
   .sheet {
     background: var(--bg);
     border-radius: 24px 24px 0 0;
@@ -408,6 +414,8 @@
     max-width: 560px;
     max-height: 92vh;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     padding: 8px 24px 32px;
     animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
   }
@@ -748,6 +756,21 @@
     padding: 4px 8px;
   }
   footer button:hover { color: var(--pink); }
+  footer .credit {
+    margin-top: 22px;
+    font-family: var(--serif);
+    font-style: italic;
+    font-weight: 300;
+    font-size: 13px;
+    color: var(--ink-soft);
+    letter-spacing: 0;
+    text-transform: none;
+  }
+  footer .credit .heart {
+    font-style: normal;
+    display: inline-block;
+    transform: translateY(1px);
+  }
 
   /* ── Auth / Setup screens ───────────── */
   .center-screen {
@@ -1013,6 +1036,10 @@ create policy "own cafes" on cafes
         <label for="authPassword">Contraseña</label>
         <input type="password" id="authPassword" required minlength="6" autocomplete="current-password">
       </div>
+      <div class="field" id="authPasswordRepeatField" style="display: none;">
+        <label for="authPasswordRepeat">Repite la contraseña</label>
+        <input type="password" id="authPasswordRepeat" minlength="6" autocomplete="new-password">
+      </div>
       <div class="form-actions">
         <button type="submit" class="btn btn-primary" id="authSubmit">Entrar</button>
       </div>
@@ -1068,9 +1095,8 @@ create policy "own cafes" on cafes
       <button id="exportBtn">Exportar JSON</button>
       ·
       <button id="importBtn">Importar JSON</button>
-      ·
-      <button id="resetBtn">Borrar todo</button>
       <input type="file" id="importInput" accept="application/json,.json" style="display: none;">
+      <p class="credit">Hecho por Jordan con <span class="heart">❤️</span> para su wansito</p>
     </footer>
   </div>
 
@@ -1170,8 +1196,8 @@ create policy "own cafes" on cafes
 // ═══════════════════════════════════════════════════════
 // CONFIGURACIÓN — REEMPLAZA ESTOS DOS VALORES
 // ═══════════════════════════════════════════════════════
-const SUPABASE_URL = 'https://azgroibrkkiawjmqapwq.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_OngjcTqb-y7CkCxBUUoBXA_12stJuN5';
+const SUPABASE_URL = 'TU_SUPABASE_URL_AQUI';
+const SUPABASE_ANON_KEY = 'TU_SUPABASE_ANON_KEY_AQUI';
 // ═══════════════════════════════════════════════════════
 
 const isConfigured =
@@ -1292,6 +1318,13 @@ function updateAuthMode() {
   document.getElementById('authTogglePrompt').textContent = isSignup ? '¿Ya tienes cuenta?' : '¿Primera vez?';
   document.getElementById('authToggle').textContent = isSignup ? 'Iniciar sesión' : 'Crear cuenta';
   document.getElementById('authPassword').setAttribute('autocomplete', isSignup ? 'new-password' : 'current-password');
+
+  const repeatField = document.getElementById('authPasswordRepeatField');
+  const repeatInput = document.getElementById('authPasswordRepeat');
+  repeatField.style.display = isSignup ? 'block' : 'none';
+  repeatInput.required = isSignup;
+  if (!isSignup) repeatInput.value = '';
+
   setAuthError('');
 }
 
@@ -1305,6 +1338,15 @@ document.getElementById('authForm').addEventListener('submit', async (e) => {
   const email = document.getElementById('authEmail').value.trim();
   const password = document.getElementById('authPassword').value;
   const submitBtn = document.getElementById('authSubmit');
+
+  if (state.authMode === 'signup') {
+    const passwordRepeat = document.getElementById('authPasswordRepeat').value;
+    if (password !== passwordRepeat) {
+      setAuthError('Las contraseñas no coinciden.');
+      return;
+    }
+  }
+
   submitBtn.disabled = true;
   setAuthError('');
 
@@ -1447,18 +1489,6 @@ async function batchInsertCafes(cafes) {
     return null;
   }
   return data.map(rowToCafe);
-}
-
-async function deleteAllCafes() {
-  const { error } = await supa
-    .from('cafes')
-    .delete()
-    .eq('user_id', state.user.id);
-  if (error) {
-    toast('No se pudo borrar', 'error');
-    return false;
-  }
-  return true;
 }
 
 // ── Migración desde localStorage ───────
@@ -1619,9 +1649,21 @@ function renderStatsStrip() {
   document.getElementById('statFav').textContent = favs;
 }
 
+// ── Modal scroll lock helpers ─────────
+function lockBodyScroll() {
+  document.documentElement.classList.add('modal-open');
+  document.body.classList.add('modal-open');
+}
+function unlockBodyScroll() {
+  document.documentElement.classList.remove('modal-open');
+  document.body.classList.remove('modal-open');
+}
+
 // ── Form handlers ──────────────────────
 const formDialog = document.getElementById('formDialog');
 const form = document.getElementById('cafeForm');
+
+formDialog.addEventListener('close', unlockBodyScroll);
 
 function openForm(cafeId = null) {
   state.editingId = cafeId;
@@ -1640,9 +1682,11 @@ function openForm(cafeId = null) {
   setPhoto(cafe?.photo || null);
 
   document.getElementById('deleteBtn').style.display = cafe ? 'block' : 'none';
+  document.getElementById('cancelBtn').style.display = cafe ? 'none' : 'block';
   document.getElementById('saveBtn').disabled = false;
 
   formDialog.showModal();
+  lockBodyScroll();
 
   if (!cafe) {
     setTimeout(() => document.getElementById('nameInput').focus(), 100);
@@ -1772,6 +1816,7 @@ form.addEventListener('submit', async (e) => {
 
 // ── Stats dialog ───────────────────────
 const statsDialog = document.getElementById('statsDialog');
+statsDialog.addEventListener('close', unlockBodyScroll);
 
 function openStats() {
   const stats = calculateStats();
@@ -1818,6 +1863,7 @@ function openStats() {
   }
 
   statsDialog.showModal();
+  lockBodyScroll();
 }
 
 function renderHistogram(buckets) {
@@ -1922,17 +1968,6 @@ document.getElementById('importInput').addEventListener('change', async (e) => {
     toast('No se pudo leer el archivo', 'error');
   } finally {
     e.target.value = '';
-  }
-});
-
-document.getElementById('resetBtn').addEventListener('click', async () => {
-  if (!confirm('¿Borrar TODOS tus cafés de la nube? Esto no se puede deshacer.')) return;
-  if (!confirm('Última confirmación: se borrarán ' + state.cafes.length + ' cafés. ¿Seguro?')) return;
-  const ok = await deleteAllCafes();
-  if (ok) {
-    state.cafes = [];
-    render();
-    toast('Todo borrado', 'success');
   }
 });
 
